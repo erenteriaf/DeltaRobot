@@ -17,7 +17,9 @@ ser_min   = 0.15;        % Serial singularity margin, 0 = arm stretched or folde
 
 % Sweep Settings (Input)
 res  = 15;                % Grid resolution [mm]
-o_ef = [-70; 100; -500];  % Sample pose drawn inside the cloud, in mm
+o_ef = [0; 0; -500];      % Sample pose drawn inside the cloud, in mm
+                          % The board center, [-70; 100; -500], needs 14.8 deg
+                          % of rod-end swivel and falls outside at beta_max = 14
 
 %% Function Call
 DeltaWorkspace(rho_b, rho_p, l1, l2, theta_max, theta_min, beta_max, det_min, ser_min, res, o_ef)
@@ -37,8 +39,10 @@ DeltaWorkspace(rho_b, rho_p, l1, l2, theta_max, theta_min, beta_max, det_min, se
 %      singularity), where the platform loses its stiffness and the rods carry
 %      the load instead of the cranks.
 % Conditions 2 to 5 are the difference between the geometric envelope and the
-% workspace the machine can work in, and they cut it roughly in half. Setting
-% theta_max and beta_max to Inf and both margins to 0 gives the envelope back.
+% workspace the machine can work in, and they are not a detail: closure alone
+% gives 425 L, the crank stops and the two margins bring it to 218 L, and the
+% rod ends bring it to 24 L. Setting theta_max and beta_max to Inf and both
+% margins to 0 gives the envelope back.
 function DeltaWorkspace(rho_b, rho_p, l1, l2, theta_max, theta_min, beta_max, det_min, ser_min, res, o_ef)
 
     % Rotation matrices
