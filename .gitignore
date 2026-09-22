@@ -10,3 +10,4 @@ cad/Subassem/Delta_Assembly Simplified.*
 __pycache__/
 *.pyc
 .venv/
+sim/stockfish/

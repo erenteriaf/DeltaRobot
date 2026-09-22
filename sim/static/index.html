@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delta Chess Simulator</title>
+<style>
+  :root{
+    --bg:#11131a; --panel:#181b24; --line:#2a2f3d; --ink:#e7e9ef; --dim:#8b93a7;
+    --accent:#7c5cff; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+    --light:#b7c0d8; --dark:#63708f; --sel:#7c5cff; --from:#3fb95055;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;
+         align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.01em}
+  .sub{color:var(--dim);font-size:12.5px}
+  main{display:grid;grid-template-columns:minmax(300px,400px) minmax(300px,1fr)
+        minmax(250px,320px);gap:16px;padding:16px 20px;align-items:start}
+  @media (max-width:1200px){main{grid-template-columns:minmax(300px,420px) 1fr}}
+  @media (max-width:820px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;
+           color:var(--dim);margin:0 0 10px;font-weight:600}
+  /* board */
+  #board{display:grid;grid-template-columns:repeat(8,1fr);aspect-ratio:1;
+         border-radius:6px;overflow:hidden;border:1px solid var(--line);user-select:none}
+  .sq{display:flex;align-items:center;justify-content:center;font-size:min(6vw,34px);
+      cursor:pointer;position:relative;line-height:1}
+  .sq.l{background:var(--light)} .sq.d{background:var(--dark)}
+  .sq .p{color:#10121a;text-shadow:0 1px 0 rgba(255,255,255,.35)}
+  .sq .p.b{color:#10121a}
+  .sq .p.w{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+  .sq.sel{outline:3px solid var(--sel);outline-offset:-3px}
+  .sq.lastmv::after{content:"";position:absolute;inset:0;background:var(--from)}
+  .sq.hint::before{content:"";position:absolute;width:26%;height:26%;border-radius:50%;
+                   background:rgba(124,92,255,.55)}
+  .coords{display:flex;justify-content:space-between;color:var(--dim);
+          font-size:11px;padding:4px 2px 0}
+  .status{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .pill{font-size:12px;padding:3px 9px;border-radius:99px;border:1px solid var(--line);
+        color:var(--dim)}
+  .pill.on{color:var(--ink);border-color:var(--accent);background:#7c5cff1a}
+  button{background:#232734;color:var(--ink);border:1px solid var(--line);
+         border-radius:7px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  /* telemetry */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  td{padding:3px 0;font-size:13px}
+  td.k{color:var(--dim)} td.v{text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .bar{height:5px;background:#232734;border-radius:99px;overflow:hidden;margin-top:3px}
+  .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .15s}
+  .steps{max-height:150px;overflow:auto;margin:0;padding:0;list-style:none;font-size:12.5px}
+  .steps li{padding:3px 8px;border-left:2px solid transparent;color:var(--dim)}
+  .steps li.now{color:var(--ink);border-left-color:var(--accent);background:#7c5cff14}
+  .steps li.done{color:#5d6478}
+  .log{margin:0;padding:0;list-style:none;font-size:12.5px;color:var(--dim)}
+  .log li{padding:2px 0;border-bottom:1px solid #20242f}
+  .log li:last-child{border:0;color:var(--ink)}
+  svg{display:block;width:100%;height:auto}
+</style>
+</head>
+<body>
+<header>
+  <h1>Delta Chess Simulator</h1>
+  <span class="sub" id="hdr">the person plays white, the robot plays black</span>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <h2>Board &mdash; stands in for the Cognex reading</h2>
+      <div id="board"></div>
+      <div class="coords"><span>a</span><span>b</span><span>c</span><span>d</span>
+        <span>e</span><span>f</span><span>g</span><span>h</span></div>
+      <div class="status">
+        <span class="pill" id="turn">&mdash;</span>
+        <span class="pill" id="chk"></span>
+        <button id="reset">New game</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>Cell log</h2>
+      <ul class="log" id="log"></ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <h2>Robot</h2>
+      <svg id="robot" viewBox="0 0 470 430" aria-label="Delta robot pose"></svg>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <h2>Telemetry &mdash; what the data block holds</h2>
+      <div class="grid2">
+        <table id="joints"></table>
+        <table id="pose"></table>
+      </div>
+      <div style="margin-top:12px">
+        <table><tr><td class="k">action</td><td class="v" id="action">idle</td></tr></table>
+        <div class="bar"><i id="prog"></i></div>
+      </div>
+      <ul class="steps" id="steps" style="margin-top:10px"></ul>
+    </div>
+  </section>
+</main>
+
+<script>
+const GLYPH = {p:"♟",n:"♞",b:"♝",r:"♜",q:"♛",k:"♚"};
+const FILES = "abcdefgh";
+let GEO = null, sel = null, legal = [], busy = false, lastFen = "", lastMove = null;
+
+/* ---------- board ---------- */
+function boardFromFen(fen){
+  const rows = fen.split(" ")[0].split("/");
+  const cells = [];
+  for(let r=0;r<8;r++){
+    const row=[];
+    for(const ch of rows[r]){
+      if(/\d/.test(ch)) for(let i=0;i<+ch;i++) row.push(null);
+      else row.push(ch);
+    }
+    cells.push(row);
+  }
+  return cells;                        // cells[0] is rank 8
+}
+
+function renderBoard(fen){
+  const cells = boardFromFen(fen), board = document.getElementById("board");
+  board.innerHTML = "";
+  for(let r=0;r<8;r++){
+    for(let f=0;f<8;f++){
+      const name = FILES[f] + (8-r);
+      const d = document.createElement("div");
+      d.className = "sq " + ((r+f)%2 ? "d" : "l");
+      d.dataset.sq = name;
+      if(sel === name) d.classList.add("sel");
+      if(lastMove && (lastMove.slice(0,2)===name || lastMove.slice(2,4)===name))
+        d.classList.add("lastmv");
+      if(sel && legal.includes(sel+name)) d.classList.add("hint");
+      const piece = cells[r][f];
+      if(piece){
+        const s = document.createElement("span");
+        s.className = "p " + (piece === piece.toUpperCase() ? "w" : "b");
+        s.textContent = GLYPH[piece.toLowerCase()];
+        d.appendChild(s);
+      }
+      d.onclick = () => clickSquare(name);
+      board.appendChild(d);
+    }
+  }
+}
+
+async function clickSquare(name){
+  if(busy) return;
+  if(sel === null){ sel = name; renderBoard(lastFen); return; }
+  if(sel === name){ sel = null; renderBoard(lastFen); return; }
+  const uci = sel + name;
+  const candidate = legal.find(m => m.startsWith(uci));
+  sel = null;
+  if(!candidate){ renderBoard(lastFen); return; }
+  await fetch("/move?uci=" + candidate);
+  poll();
+}
+
+/* ---------- robot view ---------- */
+const AZ = -37.5*Math.PI/180, EL = 20*Math.PI/180;
+const U = [-Math.sin(AZ), Math.cos(AZ), 0];
+const V = [-Math.cos(AZ)*Math.sin(EL), -Math.sin(AZ)*Math.sin(EL), Math.cos(EL)];
+const K = 0.33;
+let OX = 0, OY = 0;
+const flat = p => [p[0]*U[0]+p[1]*U[1]+p[2]*U[2], p[0]*V[0]+p[1]*V[1]+p[2]*V[2]];
+const proj = p => { const f = flat(p); return [OX + K*f[0], OY - K*f[1]]; };
+const pt = p => proj(p).map(v => v.toFixed(1)).join(",");
+
+/* Size the view to everything that can appear in it: the base, the whole
+   board plane, the discard pile, and the elbows at both ends of their travel. */
+function fitView(){
+  const pts = [[0,0,0], [GEO.discard[0], GEO.discard[1], GEO.z_discard], [0,0,GEO.z_low]];
+  GEO.shoulders.forEach(s => pts.push(s));
+  for(const xy of Object.values(GEO.squares)) pts.push([xy[0], xy[1], GEO.z_low]);
+  const rot = [[1,0],[-0.5,-Math.sqrt(3)/2],[-0.5,Math.sqrt(3)/2]];
+  for(const [c,s2] of rot){
+    for(const th of [-95, 20]){
+      const r = th*Math.PI/180;
+      const y = -GEO.rho_b - GEO.l1*Math.cos(r), z = GEO.l1*Math.sin(r);
+      pts.push([c*0 - s2*y, s2*0 + c*y, z]);
+    }
+  }
+  const f = pts.map(flat), xs = f.map(v=>v[0]), ys = f.map(v=>v[1]), pad = 26;
+  const w = (Math.max(...xs)-Math.min(...xs))*K + 2*pad;
+  const h = (Math.max(...ys)-Math.min(...ys))*K + 2*pad;
+  OX = pad - Math.min(...xs)*K;
+  OY = pad + Math.max(...ys)*K;
+  document.getElementById("robot").setAttribute("viewBox",
+    `0 0 ${w.toFixed(0)} ${h.toFixed(0)}`);
+}
+
+function renderRobot(t){
+  const svg = document.getElementById("robot");
+  if(!GEO){ return; }
+  const sh = GEO.shoulders;
+  let out = "";
+
+  // the board plane, so you can see where the robot is working
+  if(GEO.squares){
+    for(const [name, xy] of Object.entries(GEO.squares)){
+      const [x,y] = proj([xy[0], xy[1], GEO.z_low]);
+      out += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2" fill="#39405a"/>`;
+    }
+    const [dx,dy] = proj([GEO.discard[0], GEO.discard[1], GEO.z_discard]);
+    out += `<circle cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="4.5" fill="none"
+             stroke="#d29922" stroke-width="1.4"/>`;
+  }
+
+  // base
+  out += `<polygon points="${sh.map(pt).join(" ")}" fill="#f8514922"
+           stroke="#f85149" stroke-width="1.6"/>`;
+  sh.forEach(s => { const [x,y]=proj(s);
+    out += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="#f85149"/>`; });
+  const [ox,oy] = proj([0,0,0]);
+  out += `<circle cx="${ox.toFixed(1)}" cy="${oy.toFixed(1)}" r="3" fill="#f85149"/>`;
+
+  const pose = t.pose;
+  if(pose){
+    for(let i=0;i<3;i++){
+      out += `<line x1="${proj(pose.shoulders[i])[0].toFixed(1)}" y1="${proj(pose.shoulders[i])[1].toFixed(1)}"
+                    x2="${proj(pose.elbows[i])[0].toFixed(1)}" y2="${proj(pose.elbows[i])[1].toFixed(1)}"
+                    stroke="#e7e9ef" stroke-width="3.4" stroke-linecap="round"/>`;
+      out += `<line x1="${proj(pose.elbows[i])[0].toFixed(1)}" y1="${proj(pose.elbows[i])[1].toFixed(1)}"
+                    x2="${proj(pose.joints[i])[0].toFixed(1)}" y2="${proj(pose.joints[i])[1].toFixed(1)}"
+                    stroke="#3fb950" stroke-width="2.8" stroke-linecap="round"/>`;
+    }
+    pose.elbows.forEach(e => { const [x,y]=proj(e);
+      out += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" fill="#58a6ff"/>`; });
+    out += `<polygon points="${pose.joints.map(pt).join(" ")}" fill="#7c5cff55"
+             stroke="#7c5cff" stroke-width="1.6"/>`;
+    const [px,py] = proj(pose.platform);
+    out += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="6"
+             fill="${t.magnet ? "#d29922" : "#7c5cff"}"/>`;
+    if(t.magnet)
+      out += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="11" fill="none"
+               stroke="#d29922" stroke-width="1.3" opacity=".8"/>`;
+  }
+  svg.innerHTML = out;
+}
+
+/* ---------- telemetry ---------- */
+function renderTelemetry(s){
+  const t = s.telemetry;
+  document.getElementById("joints").innerHTML = t.theta.map((v,i) =>
+    `<tr><td class="k">&theta;${i+1}</td><td class="v">${v.toFixed(2)}&deg;</td></tr>`
+  ).join("") + `<tr><td class="k">magnet</td><td class="v">${t.magnet ? "on":"off"}</td></tr>`;
+
+  document.getElementById("pose").innerHTML =
+    ["x","y","z"].map((k,i) =>
+      `<tr><td class="k">${k}</td><td class="v">${t.ee[i].toFixed(1)} mm</td></tr>`
+    ).join("") + `<tr><td class="k">state</td><td class="v">${
+      t.fault ? "fault" : (t.moving ? "moving" : "idle")}</td></tr>`;
+
+  document.getElementById("action").textContent = t.fault || t.action;
+  const task = s.task;
+  const frac = task.total ? ((task.index+1)/task.total*100) : 0;
+  document.getElementById("prog").style.width = (task.running ? frac : 0) + "%";
+  document.getElementById("steps").innerHTML = (task.steps||[]).map((label,i) =>
+    `<li class="${i===task.index ? "now" : (i<task.index ? "done":"")}">${i+1}. ${label}</li>`
+  ).join("");
+}
+
+/* ---------- loop ---------- */
+async function poll(){
+  let s;
+  try { s = await (await fetch("/state")).json(); } catch(e){ return; }
+  legal = s.legal; busy = s.task.running || s.turn === "robot";
+  lastMove = s.last_move;
+  if(s.fen !== lastFen || document.getElementById("board").children.length === 0){
+    lastFen = s.fen; renderBoard(s.fen);
+  }
+  const turn = document.getElementById("turn");
+  turn.textContent = s.game_over ? ("game over " + s.result)
+                   : (s.turn === "human" ? "your move" : "robot thinking");
+  turn.className = "pill" + (s.turn === "human" && !busy ? " on" : "");
+  const chk = document.getElementById("chk");
+  chk.textContent = s.check ? "check" : "";
+  chk.className = "pill" + (s.check ? " on" : "");
+  chk.style.display = s.check ? "" : "none";
+  document.getElementById("hdr").textContent =
+    `you play white, the robot plays black · engine: ${s.engine}`;
+  document.getElementById("log").innerHTML =
+    s.log.map(l => `<li>${l}</li>`).join("");
+  renderRobot(s.telemetry);
+  renderTelemetry(s);
+}
+
+document.getElementById("reset").onclick = async () => {
+  await fetch("/reset"); sel = null; lastFen = ""; poll();
+};
+
+(async () => {
+  GEO = await (await fetch("/geometry")).json();
+  fitView();
+  poll();
+  setInterval(poll, 120);
+})();
+</script>
+</body>
+</html>
