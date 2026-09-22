@@ -1,85 +1,96 @@
-"""Chess square to robot coordinates.
+"""Chess Board Coordinates
 
-The grid is the one measured on the cell for the chess variant, square by
-square, which is why it is skewed rather than a clean lattice: the board was
-not laid down square with the base frame. Taken from the team's main_chess.py.
+The cell used a grid measured square by square, which came out skewed because
+the board was not laid down square with the base frame. Here the board is a
+real square, 320 mm on a side in 40 mm squares, centred on the base axis, so
+every coordinate comes out of the geometry instead of a tape measure.
 
-Heights come from the same file, with two corrections. It had
-
-    z_low = - -450
-
-which is +450, above the base, not below it; the intended value is -450. And
-its transit height of -350 puts f8, g8, h7, h8 and the discard pile past arm
-3's limit switch, so run chess_board.py to see the audit. -380 clears every
-square with margin.
+Centred is also where the workspace is widest. The corners sit 198 mm from the
+base axis and the usable bowl is 351 mm wide at this height, so the whole board
+clears with room on every side.
 """
 import kinematics as K
 
-# x, y of each square center [mm], base center is the origin
-SQUARES = {
-    "a": {"1": (250, -80), "2": (199, -12), "3": (168, 39), "4": (142, 61),
-          "5": (117, 123), "6": (96, 165), "7": (70, 212), "8": (35, 265)},
-    "b": {"1": (190, -90), "2": (163, -33), "3": (122, 5), "4": (97, 36),
-          "5": (76, 103), "6": (50, 145), "7": (35, 187), "8": (10, 240)},
-    "c": {"1": (155, -110), "2": (117, -52), "3": (82, -10), "4": (56, 31),
-          "5": (41, 83), "6": (15, 120), "7": (-5, 162), "8": (-21, 205)},
-    "d": {"1": (110, -125), "2": (72, -72), "3": (46, -25), "4": (21, 12),
-          "5": (7, 58), "6": (-20, 100), "7": (-46, 137), "8": (-67, 180)},
-    "e": {"1": (70, -150), "2": (26, -92), "3": (7, -50), "4": (-20, -8),
-          "5": (-40, 33), "6": (-56, 75), "7": (-88, 112), "8": (-107, 155)},
-    "f": {"1": (20, -170), "2": (-19, -112), "3": (-39, -75), "4": (-55, -33),
-          "5": (-80, 8), "6": (-92, 40), "7": (-121, 87), "8": (-138, 130)},
-    "g": {"1": (-10, -190), "2": (-54, -132), "3": (-80, -100), "4": (-105, -55),
-          "5": (-117, -21), "6": (-142, 15), "7": (-158, 57), "8": (-180, 100)},
-    "h": {"1": (-70, -220), "2": (-95, -162), "3": (-126, -120), "4": (-142, -83),
-          "5": (-157, -46), "6": (-183, -10), "7": (-204, 27), "8": (-255, 10)},
-}
+SQUARE = 40.0              # Side of one square [mm]
+BOARD  = 8 * SQUARE        # 320 mm, the whole board
 
-Z_HIGH = -380.0    # transit height, clear of the pieces. The highest that
-                   # reaches all 64 squares is -370, see the audit below
-Z_LOW = -450.0     # piece height, where the magnet grabs
-Z_DISCARD = -430.0
-DISCARD = (170.0, 210.0)   # where captured pieces are dropped, off the board
+# File a is at +x and rank 1 is at -y, the same way round as the original cell
+FILES = 'abcdefgh'
+RANKS = '12345678'
+
+Z_HIGH    = -380.0         # Transit height, clear of the pieces [mm]
+Z_LOW     = -450.0         # Piece height, where the magnet grabs [mm]
+Z_DISCARD = -430.0         # Drop height over the discard pile [mm]
+DISCARD   = {'x': 0.0, 'y': -250.0}   # Captured pieces go here, off the board
 
 
-def xy(square):
-    """'e4' -> (x, y) in mm."""
-    return SQUARES[square[0]][square[1]]
+def build_squares():
+    """Square name to {'x','y'}, the same shape as the cell's BOARD_COORDINATES."""
+    squares = {}
+    for i, file_ in enumerate(FILES):
+        squares[file_] = {}
+        for j, rank in enumerate(RANKS):
+            squares[file_][rank] = {
+                'x': BOARD / 2 - SQUARE / 2 - i * SQUARE,   # a at +x, h at -x
+                'y': -BOARD / 2 + SQUARE / 2 + j * SQUARE,  # 1 at -y, 8 at +y
+            }
+    return squares
 
 
-def point(square, z):
-    x, y = xy(square)
-    return [float(x), float(y), float(z)]
+SQUARES = build_squares()
+
+
+def get_coordinates(square, z):
+    """'e4' to [x, y, z] in mm, base centre is the origin."""
+    cell = SQUARES[square[0]][square[1]]
+    return [cell['x'], cell['y'], float(z)]
+
+
+def discard_point(z):
+    return [DISCARD['x'], DISCARD['y'], float(z)]
 
 
 def audit():
-    """Check every square, at both working heights, against the limits.
+    """Check every square, at both working heights, against the mechanical limits.
 
     The chess cell was built but never run, so nothing here was ever proven on
-    the machine. Returns a list of (square, z, reasons).
+    the machine. Returns a list of (position, z, reasons).
     """
     bad = []
-    for file_ in "abcdefgh":
-        for rank in "12345678":
+    for file_ in FILES:
+        for rank in RANKS:
             for z in (Z_HIGH, Z_LOW):
-                sq = file_ + rank
-                result = K.check(point(sq, z))
-                if not result["ok"]:
-                    bad.append((sq, z, result["reasons"]))
+                result = K.check(get_coordinates(file_ + rank, z))
+                if not result['ok']:
+                    bad.append((file_ + rank, z, result['reasons']))
     for z in (Z_HIGH, Z_DISCARD):
-        result = K.check([DISCARD[0], DISCARD[1], z])
-        if not result["ok"]:
-            bad.append(("discard", z, result["reasons"]))
+        result = K.check(discard_point(z))
+        if not result['ok']:
+            bad.append(('discard', z, result['reasons']))
     return bad
 
 
 if __name__ == "__main__":
+    print(f"Board: {BOARD:.0f} x {BOARD:.0f} mm, {SQUARE:.0f} mm squares, centred on the base axis")
+    corner = get_coordinates('a1', Z_LOW)
+    print(f"Corner a1 at ({corner[0]:.0f}, {corner[1]:.0f}), "
+          f"{(corner[0]**2 + corner[1]**2) ** 0.5:.0f} mm from the axis")
+    print(f"Heights: transit {Z_HIGH:.0f}, piece {Z_LOW:.0f}, discard {Z_DISCARD:.0f}")
+    print()
+
     problems = audit()
-    print(f"squares checked: 64 at z={Z_HIGH:.0f} and z={Z_LOW:.0f}, "
-          f"plus the discard pile")
     if not problems:
-        print("all reachable")
+        print("All 64 squares and the discard pile are reachable at both heights.")
     else:
-        print(f"{len(problems)} position(s) the robot cannot be sent to:\n")
-        for sq, z, reasons in problems:
-            print(f"  {sq} at z={z:.0f}: {reasons[0]}")
+        print(f"{len(problems)} position(s) the robot cannot be sent to:")
+        for name, z, reasons in problems:
+            print(f"  {name} at z={z:.0f}: {reasons[0]}")
+
+    # How much room is left, the number worth knowing before moving the board
+    worst = 0.0
+    for file_ in FILES:
+        for rank in RANKS:
+            result = K.check(get_coordinates(file_ + rank, Z_LOW))
+            worst = max(worst, max(result['beta']))
+    print(f"\nLargest rod-end swivel the board asks for: {worst:.1f} deg "
+          f"(limit {K.BETA_MAX:.0f})")

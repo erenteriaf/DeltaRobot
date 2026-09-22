@@ -1,187 +1,213 @@
-"""A stand-in for the S7-1200, with the call surface of pc/plc_connection.py.
+"""Stand-in for the S7-1200, with the same calls as pc/plc_connection.py.
 
-The real module writes REALs and BOOLs into DB6 over snap7. This one keeps the
-same fields in memory and runs the same motion model the PLC does:
+That module opens a snap7 client and writes REALs and BOOLs into DB6. This one
+keeps the same fields in memory and runs the motion the PLC would run:
 
-  MOVE_XYZ -> DELTA_INVERSE_KINEMATICS -> ANGLE_2_PULSES -> MC_MoveRelative
+    MOVE_XYZ -> DELTA_INVERSE_KINEMATICS -> ANGLE_2_PULSES -> MC_MoveRelative
 
 so a move is point to point in joint space, each axis turning at its own
-constant rate and arriving when it arrives. The end effector therefore follows
-the curved path the machine actually takes, not a straight Cartesian line.
+constant rate and arriving when it arrives. The end effector follows the curved
+path the machine actually takes, not a straight line between two points.
 
-Swapping this module for pc/plc_connection.py is the only change the control
-script needs.
+Importing this instead of plc_connection is the only change the control script
+needs. The byte offsets in the comments are the ones the real module writes to.
 """
 import threading
 import time
 
 import kinematics as K
 
-JOINT_SPEED = 45.0      # deg/s at the crank, the MC_MoveJog velocity stands in
-TICK = 0.02             # motion task period [s]
+JOINT_SPEED = 45.0      # Crank speed [deg/s], stands in for the MC velocity
+TICK        = 0.02      # Motion task period [s]
+
+# Data block 6, the fields pc/plc_connection.py reads and writes
+DB = {
+    'o_ef':          list(K.HOME),         # bytes 92..103, the commanded target
+    'token':         list(K.HOME),         # bytes 104..115
+    'c_theta':       list(K.THETA_HOME),   # latched joint state, see plc/set_angles.scl
+    'c_o_ef':        list(K.HOME),         # latched Cartesian state
+    'my_turn':       False,                # byte 116.0
+    'start_play':    False,                # byte 117.1
+    'go_home':       False,                # byte 117.3
+    'go_out_home':   False,                # byte 134.0
+    'at_home':       True,
+    'point_reached': True,
+    'gripper':       False,
+    'magnet':        False,
+    'conveyor':      False,
+}
+
+theta   = list(K.THETA_HOME)    # Where the three axes actually are [deg]
+target  = list(K.THETA_HOME)    # Where they have been told to go [deg]
+action  = "idle"                # What the cell is doing, for the interface
+fault   = None                  # Set when a target cannot be reached
+
+lock = threading.RLock()
 
 
-class SimulatedPLC:
-    def __init__(self):
-        self._lock = threading.RLock()
-        # Data block 6, the fields pc/plc_connection.py reads and writes
-        self.db = {
-            "o_ef": list(K.HOME),          # bytes 92..103, the commanded target
-            "c_theta": list(K.THETA_HOME),  # latched joint state, see plc/set_angles.scl
-            "c_o_ef": list(K.HOME),         # latched Cartesian state
-            "my_turn": False,               # byte 116.0
-            "start_play": False,            # byte 117.1
-            "go_home": False,               # byte 117.3
-            "go_out_home": False,           # byte 134.0
-            "at_home": True,
-            "point_reached": True,
-            "gripper": False,
-            "magnet": False,
-            "conveyor": False,
+def motion_task():
+    """The PLC's cyclic job: turn each axis towards its target, latch on arrival."""
+    last = time.monotonic()
+    while True:
+        time.sleep(TICK)
+        now = time.monotonic()
+        dt, last = now - last, now
+        with lock:
+            step = JOINT_SPEED * dt
+            moving = False
+            for i in range(3):
+                delta = target[i] - theta[i]
+                if abs(delta) <= step:
+                    theta[i] = target[i]
+                else:
+                    theta[i] += step if delta > 0 else -step
+                    moving = True
+            if not moving and not DB['point_reached']:
+                # SET_ANGLES, latch the pose that was reached
+                DB['point_reached'] = True
+                DB['c_theta'] = list(theta)
+                try:
+                    DB['c_o_ef'] = K.forward(theta)
+                except K.Unreachable:
+                    pass
+                globals()['action'] = "idle"
+
+
+threading.Thread(target=motion_task, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# The pc/plc_connection.py surface
+# ---------------------------------------------------------------------------
+def write_oef(x, y, z):
+    """DB6, byte 92: the Cartesian target MOVE_XYZ will solve for."""
+    with lock:
+        DB['o_ef'] = [float(x), float(y), float(z)]
+
+
+def write_token_plc(token_x, token_y, token_z):
+    """DB6, byte 104."""
+    with lock:
+        DB['token'] = [float(token_x), float(token_y), float(token_z)]
+
+
+def start_play():
+    """DB6, byte 117.1. The rising edge is what runs MOVE_XYZ."""
+    with lock:
+        try:
+            solution = K.inverse(DB['o_ef'])
+        except K.Unreachable as exc:
+            globals()['fault'] = (f"{[round(v) for v in DB['o_ef']]} "
+                                  f"cannot be reached: {exc}")
+            return False
+        globals()['fault'] = None
+        target[:] = solution
+        DB['point_reached'] = False
+        DB['at_home'] = False
+        return True
+
+
+def go_home():
+    """DB6, byte 117.3. HOMING parks the arms on their limit switches."""
+    with lock:
+        target[:] = list(K.THETA_HOME)
+        DB['point_reached'] = False
+        globals()['action'] = "homing"
+    wait_idle()
+    with lock:
+        DB['at_home'] = True
+        DB['c_theta'] = list(K.THETA_HOME)
+        DB['c_o_ef'] = list(K.HOME)
+
+
+def go_out_home():
+    """DB6, byte 134.0. OUT_HOMING drops the latched state."""
+    with lock:
+        DB['at_home'] = False
+        DB['c_theta'] = [-999.9, -999.9, -999.9]
+
+
+def read_my_turn():
+    """DB6, byte 116.0."""
+    with lock:
+        return 1 if DB['my_turn'] else 0
+
+
+def read_my_turn_memory():
+    return read_my_turn()
+
+
+def activate_magnet():
+    with lock:
+        DB['magnet'] = True
+
+
+def deactivate_magnet():
+    with lock:
+        DB['magnet'] = False
+
+
+def close_gripper():
+    with lock:
+        DB['gripper'] = True
+
+
+def open_gripper():
+    with lock:
+        DB['gripper'] = False
+
+
+def activate_conveyor():
+    with lock:
+        DB['conveyor'] = True
+
+
+def deactivate_conveyor():
+    with lock:
+        DB['conveyor'] = False
+
+
+# ---------------------------------------------------------------------------
+# Only in the simulator: the interface needs to see inside the cell
+# ---------------------------------------------------------------------------
+def set_my_turn(value):
+    """On the cell the PLC raises this itself, here the game raises it."""
+    with lock:
+        DB['my_turn'] = bool(value)
+
+
+def set_action(label):
+    with lock:
+        globals()['action'] = label
+
+
+def is_moving():
+    with lock:
+        return not DB['point_reached']
+
+
+def wait_idle(timeout=20.0):
+    """Stands in for the fixed sleeps the real script puts after every move."""
+    deadline = time.monotonic() + timeout
+    while is_moving() and time.monotonic() < deadline:
+        time.sleep(TICK)
+    return not is_moving()
+
+
+def telemetry():
+    """Joint angles, platform position and pose, what a watch table would show."""
+    with lock:
+        try:
+            end_effector = K.forward(theta)
+            pose = K.pose(end_effector)
+        except K.Unreachable:
+            end_effector, pose = list(DB['c_o_ef']), None
+        return {
+            'theta':  list(theta),
+            'ee':     end_effector,
+            'pose':   pose,
+            'action': action,
+            'fault':  fault,
+            'moving': not DB['point_reached'],
+            'magnet': DB['magnet'],
         }
-        self._target = list(K.THETA_HOME)   # commanded joint angles
-        self._theta = list(K.THETA_HOME)    # where the axes actually are
-        self._action = "idle"
-        self._fault = None
-        self._stop = threading.Event()
-        self._task = threading.Thread(target=self._motion_task, daemon=True)
-        self._task.start()
-
-    # ---------- the motion task, the PLC's cyclic job ----------
-    def _motion_task(self):
-        last = time.monotonic()
-        while not self._stop.is_set():
-            time.sleep(TICK)
-            now = time.monotonic()
-            dt, last = now - last, now
-            with self._lock:
-                step = JOINT_SPEED * dt
-                moving = False
-                for i in range(3):
-                    delta = self._target[i] - self._theta[i]
-                    if abs(delta) <= step:
-                        self._theta[i] = self._target[i]
-                    else:
-                        self._theta[i] += step if delta > 0 else -step
-                        moving = True
-                if not moving and not self.db["point_reached"]:
-                    # SET_ANGLES: latch the pose that was reached
-                    self.db["point_reached"] = True
-                    self.db["c_theta"] = list(self._theta)
-                    try:
-                        self.db["c_o_ef"] = K.forward(self._theta)
-                    except K.Unreachable:
-                        pass
-                    self._action = "idle"
-
-    def stop(self):
-        self._stop.set()
-
-    # ---------- telemetry, what a watch table would show ----------
-    def telemetry(self):
-        with self._lock:
-            try:
-                ee = K.forward(self._theta)
-                pose = K.pose(ee)
-            except K.Unreachable:
-                ee, pose = list(self.db["c_o_ef"]), None
-            return {
-                "theta": [round(t, 2) for t in self._theta],
-                "target_theta": [round(t, 2) for t in self._target],
-                "ee": [round(v, 2) for v in ee],
-                "action": self._action,
-                "moving": not self.db["point_reached"],
-                "at_home": self.db["at_home"],
-                "magnet": self.db["magnet"],
-                "gripper": self.db["gripper"],
-                "fault": self._fault,
-                "pose": pose,
-            }
-
-    def busy(self):
-        with self._lock:
-            return not self.db["point_reached"]
-
-    def wait_idle(self, timeout=20.0):
-        """Stand-in for the fixed sleeps the real script uses after each move."""
-        deadline = time.monotonic() + timeout
-        while self.busy() and time.monotonic() < deadline:
-            time.sleep(TICK)
-        return not self.busy()
-
-    def set_action(self, label):
-        with self._lock:
-            self._action = label
-
-    # ---------- the pc/plc_connection.py surface ----------
-    def write_oef(self, x, y, z):
-        with self._lock:
-            self.db["o_ef"] = [float(x), float(y), float(z)]
-
-    def write_token_plc(self, x, y, z):
-        with self._lock:
-            self.db["token"] = [float(x), float(y), float(z)]
-
-    def start_play(self):
-        """Rising edge on start_play, which is what runs MOVE_XYZ."""
-        with self._lock:
-            target = self.db["o_ef"]
-            try:
-                self._target = K.inverse(target)
-            except K.Unreachable as exc:
-                self._fault = f"{tuple(round(v) for v in target)} unreachable: {exc}"
-                return False
-            self._fault = None
-            self.db["point_reached"] = False
-            self.db["at_home"] = False
-            return True
-
-    def go_home(self):
-        with self._lock:
-            self._target = list(K.THETA_HOME)
-            self.db["point_reached"] = False
-            self._action = "homing"
-        self.wait_idle()
-        with self._lock:
-            self.db["at_home"] = True
-            self.db["c_theta"] = list(K.THETA_HOME)
-            self.db["c_o_ef"] = list(K.HOME)
-
-    def go_out_home(self):
-        with self._lock:
-            self.db["at_home"] = False
-            self.db["c_theta"] = [-999.9, -999.9, -999.9]
-
-    def read_my_turn(self):
-        with self._lock:
-            return 1 if self.db["my_turn"] else 0
-
-    read_my_turn_memory = read_my_turn
-
-    def set_my_turn(self, value):
-        with self._lock:
-            self.db["my_turn"] = bool(value)
-
-    def activate_magnet(self):
-        with self._lock:
-            self.db["magnet"] = True
-
-    def deactivate_magnet(self):
-        with self._lock:
-            self.db["magnet"] = False
-
-    def close_gripper(self):
-        with self._lock:
-            self.db["gripper"] = True
-
-    def open_gripper(self):
-        with self._lock:
-            self.db["gripper"] = False
-
-    def activate_conveyor(self):
-        with self._lock:
-            self.db["conveyor"] = True
-
-    def deactivate_conveyor(self):
-        with self._lock:
-            self.db["conveyor"] = False
