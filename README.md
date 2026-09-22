@@ -74,13 +74,27 @@ This is what fixes the reference for the whole open-loop chain: homing jogs each
 
 ### Workspace
 
-`DeltaRobotWorkspace.m` sweeps a Cartesian grid and keeps every point where all three arms have a real IK solution, which turns the reachability test into a map of where the robot can actually be commanded. Counting the surviving cells estimates the volume, and the largest disc available at each height is what fixes the working plane for the board and the token feed.
+`DeltaRobotWorkspace.m` sweeps a Cartesian grid and keeps the points the robot can actually be commanded to. Solving the loop closure is only the first of four tests, and on its own it is badly optimistic:
 
-The geometric envelope is about 425 L, reaching ±432 mm at the board height of *z* = -500 mm and bottoming out at *z* = -784 mm. It is a bound, not a promise: the sweep leaves the crank angles unbounded by default, so the envelope includes poses the mechanics cannot reach. Setting `theta_lim` to the real travel trims it to the usable workspace.
+1. **Loop closure.** The forearm sphere must reach the arm plane, and the circle it leaves there must cut the biceps circle. This is the IK test above.
+2. **Crank stops.** Homing raises each arm until it trips its limit switch, so those angles are the hard upper stop: no pose may ask an arm past 16°, 12° or 9°. Closure alone happily returns poses needing +74° on arm 2, with the biceps hanging straight down and the forearm reaching back up over it.
+3. **Rod-end swivel.** Each forearm leaves its arm plane by $\beta_i = \arcsin(x_i / l_2)$, and that angle is misalignment the rod ends at both of its ends have to absorb.
+4. **Serial singularity.** Biceps and forearm lined up in the arm plane, at the edge of reach, where the arm gains no velocity along the forearm.
+5. **Parallel singularity.** The three forearms approaching a common plane. Their unit vectors are the rows of the platform Jacobian, so the determinant collapsing means the platform loses its stiffness and the rods take the load instead of the cranks.
 
-<p align="center"><img src="docs/workspace.svg" width="760" alt="Reachable workspace, boundary surface"></p>
+Each test is a large cut. Loop closure alone claims **425 L** and lets the platform climb to *z* = -20 mm out at the rim. Adding the crank stops and the two singularity margins brings it to **218 L**. Adding the rod ends at their catalogue ±14° leaves **24 L**: a column of radius 125 mm running from *z* = -146 mm down to *z* = -781 mm.
 
 <p align="center"><img src="docs/workspace_section.svg" width="700" alt="Workspace cross section at y = 0"></p>
+
+<p align="center"><img src="docs/workspace.svg" width="760" alt="Usable workspace, boundary surface"></p>
+
+### What this says about the machine
+
+The points in the cross section are the positions the robot actually worked at, and most of them are outside that rated column. The center of the board asks for 14.8° of rod-end misalignment, the far corners 24° to 26°, and the outermost token in the feed 32.4°, well over double the catalogue figure. The robot played whole games from those positions, so the joints were running far past their rated misalignment rather than the poses being impossible.
+
+That is the most useful thing the sweep turned up. The board and the token feed were positioned by hand, on the bench, without checking them against a workspace model, and the model says they should have been kept inside a 125 mm radius of the base axis. Kinematic calibration is the usual next step for a machine like this; on this one, sizing the task to the joints comes first.
+
+The limits all sit at the top of `DeltaRobotWorkspace.m` as `theta_max`, `beta_max`, `det_min` and `ser_min`. Setting the first two to `Inf` and the margins to zero gives the geometric envelope back, which is a useful check but not a place to send the robot.
 
 Both kinematic models were cross-checked as exact inverses of each other. The IK was then ported to Structured Text (SCL) on the PLC, including the helper routines it needs (matrix-vector products, circle intersection, `atan2`), since the S7-1200 has no linear algebra library.
 
