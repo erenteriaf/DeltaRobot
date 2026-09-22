@@ -1,0 +1,9 @@
+FOR #i := 0 TO 2 DO
+    // Statement section FOR
+    FOR #j := 0 TO 2 DO
+        // Statement section FOR
+        #C[#j,#i]:=#A[#i,#j];
+    END_FOR;
+    
+END_FOR;
+#Output := #C;

@@ -1,0 +1,4 @@
+FOR #i := 0 TO 2 DO
+    // Statement section FOR
+    #Output[#i] := #A[#i] + #B[#i];
+END_FOR;

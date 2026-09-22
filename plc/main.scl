@@ -1,0 +1,41 @@
+IF "my_turn" = 1 THEN
+    "Data_block_1".my_turn := 1;
+    
+ELSE
+    "Data_block_1".my_turn := 0;
+    
+END_IF;
+
+IF "Data_block_1".pick_token = 1 THEN
+    // Statement section IF
+    "close_gripper" := 1;
+    
+ELSE
+    "close_gripper" := 0;
+END_IF;
+
+IF "Data_block_1".activate_conveyor = 1 THEN
+    // Statement section IF
+    "conveyor" := 1;
+    
+ELSE
+    "conveyor" := 0;
+END_IF;
+
+
+
+
+IF "Data_block_1".start_play = 1 THEN
+    
+    "MOVE_XYZ"("Data_block_1"."o_ef_");
+    
+ELSIF "Data_block_1".go_home = 1 THEN
+    
+    "HOMING"();
+    
+ELSIF "Data_block_1".go_out_home = 1 THEN
+    
+    "OUT_HOMING"();
+    
+END_IF;
+

@@ -1,0 +1,145 @@
+// ===== Axis 1 =====
+
+// latch to detect limit switch and home once
+IF "limit_1" = 0 AND NOT #arm_1_not_home THEN
+    #arm_1_not_home := TRUE;
+END_IF;
+
+// Always power the motor (no disabling anymore)
+"MC_Power_DB"(
+              Axis := "Axis_1",
+              Enable := TRUE,
+              StartMode := 1,
+              StopMode := 0
+);
+
+// Always call MoveJog but change inputs based on home state
+IF NOT #arm_1_not_home THEN
+    "MC_MoveJog_DB"(
+                    Axis := "Axis_1",
+                    Velocity := 100.0,
+                    JogForward := TRUE,
+                    JogBackward := FALSE
+    );
+ELSE
+    "MC_MoveJog_DB"(
+                    Axis := "Axis_1",
+                    Velocity := 0.0,
+                    JogForward := FALSE,
+                    JogBackward := FALSE
+    );
+END_IF;
+
+// ===== Axis 2 =====
+
+// latch to detect limit switch and home once
+IF "limit_2" = 0 AND NOT #arm_2_not_home THEN
+    #arm_2_not_home := TRUE;
+END_IF;
+
+// Always power the motor (no disabling anymore)
+"MC_Power_DB_2"(
+                Axis := "Axis_2",
+                Enable := TRUE,
+                StartMode := 1,
+                StopMode := 0
+);
+
+// Always call MoveJog but change inputs based on home state
+IF NOT #arm_2_not_home THEN
+    "MC_MoveJog_DB_2"(
+                      Axis := "Axis_2",
+                      Velocity := 100.0,
+                      JogForward := TRUE,
+                      JogBackward := FALSE
+    );
+ELSE
+    "MC_MoveJog_DB_2"(
+                      Axis := "Axis_2",
+                      Velocity := 0.0,
+                      JogForward := FALSE,
+                      JogBackward := FALSE
+    );
+END_IF;
+
+// ===== Axis 3 =====
+
+// latch to detect limit switch and home once
+IF "limit_3" = 0 AND NOT #arm_3_not_home THEN
+    #arm_3_not_home := TRUE;
+END_IF;
+
+// Always power the motor (no disabling anymore)
+"MC_Power_DB_3"(
+                Axis := "Axis_3",
+                Enable := TRUE,
+                StartMode := 1,
+                StopMode := 0
+);
+
+// Always call MoveJog but change inputs based on home state
+IF NOT #arm_3_not_home THEN
+    "MC_MoveJog_DB_3"(
+                      Axis := "Axis_3",
+                      Velocity := 100.0,
+                      JogForward := TRUE,
+                      JogBackward := FALSE
+    );
+ELSE
+    "MC_MoveJog_DB_3"(
+                      Axis := "Axis_3",
+                      Velocity := 0.0,
+                      JogForward := FALSE,
+                      JogBackward := FALSE
+    );
+END_IF;
+
+IF #arm_1_not_home = 1 AND #arm_2_not_home = 1 AND #arm_3_not_home = 1 THEN
+    // Statement section IF
+    "Data_block_1".at_home := 0;
+    "Data_block_1".go_out_home := 0;
+    "Data_block_1".point_reached := 0;
+    "Data_block_1".c_theta1 := -999.9;
+    "Data_block_1".c_theta2 := -999.9;
+    "Data_block_1".c_theta3 := -999.9;
+    
+END_IF;
+
+(* — Optional: handle errors *)
+IF "MC_Power_DB_1".Error THEN
+    #error_code := "MC_Power_DB".ErrorID;
+    #error_code := "MC_Power_DB".ErrorInfo;
+    
+    
+END_IF;
+IF "MC_MoveJog_DB_1".Error THEN
+    #error_code := "MC_MoveJog_DB".ErrorID;
+    #error_code := "MC_MoveJog_DB".ErrorInfo;
+    
+END_IF;
+
+IF "MC_Power_DB_2".Error THEN
+    // Statement section IF
+    #error_code := "MC_Power_DB_2".ErrorID;
+    #error_code := "MC_Power_DB_2".ErrorInfo;
+END_IF;
+
+IF "MC_MoveJog_DB_2".Error THEN
+    // Statement section IF
+    #error_code := "MC_MoveJog_DB_2".ErrorID;
+    #error_code := "MC_MoveJog_DB_2".ErrorInfo;
+END_IF;
+
+IF "MC_Power_DB_3".Error THEN
+    // Statement section IF
+    #error_code := "MC_Power_DB_3".ErrorID;
+    #error_code := "MC_Power_DB_3".ErrorInfo;
+END_IF;
+
+IF "MC_MoveJog_DB_3".Error THEN
+    // Statement section IF
+    #error_code := "MC_MoveJog_DB_3".ErrorID;
+    #error_code := "MC_MoveJog_DB_3".ErrorInfo;
+END_IF;
+
+

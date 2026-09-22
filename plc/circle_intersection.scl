@@ -1,0 +1,26 @@
+#y1 := #C1[1];
+#y2 := #C2[1];
+#z1 := #C1[2];
+#z2 := #C2[2];
+
+#d := SQRT((#y2-#y1)*(#y2-#y1) + (#z2-#z1)*(#z2-#z1));1
+
+IF #d > #r1 + #r2 OR #d < ABS(#r1-#r2) THEN
+    // Error, return none
+    ;
+END_IF;
+
+#a := (#r1 * #r1 - #r2 * #r2 + #d * #d) / (2 * #d);
+#h_squared := #r1*#r1 - #a*#a;
+IF #h_squared < 0 THEN
+    // Error, invalid intersection, no real solution exists
+    ;
+END_IF;
+#h := SQRT(#h_squared);
+#"y_" := (#a * (#y2 - #y1) + #h * (#z2 - #z1)) / #d + #y1;
+#"z_" := (#a * (#z2 - #z1) - #h * (#y2 - #y1)) / #d + #z1;
+
+#y[0] := #"y_";
+#y[1] := (#a * (#y2 - #y1) - #h * (#z2 - #z1)) / #d + #y1;
+#z[0] := #"z_";
+#z[1] := (#a * (#z2 - #z1) + #h * (#y2 - #y1)) / #d + #z1;

@@ -1,0 +1,76 @@
+"TRANSPOSE"(Output=> #P_t, A:=#R);
+"TRANSPOSE"(Output=> #B_t, A:=#R);
+
+#debug_var_1 := #R[0, 0];
+#debug_var_2 := #R[1, 1];
+#debug_var_3 := #R[2, 2];
+
+#debug_var_1 := #P_j[0];
+#debug_var_2 := #P_j[1];
+#debug_var_3 := #P_j[2];
+        
+#debug_var_1 := #P[0];
+#debug_var_2 := #P[1];
+#debug_var_3 := #P[2];
+
+#debug_var_1 := #B[0];
+#debug_var_2 := #B[1];
+#debug_var_3 := #B[2];
+
+
+"VEC_MAT_MULTIPLICATION"(result => #P_rot,
+                         mat := #P_t,
+                         vec := #P);
+"VEC_MAT_MULTIPLICATION"(result => #B_rot,
+                         mat := #B_t,
+                         vec := #B);
+
+#debug_var_1 := #P_rot[0];
+#debug_var_2 := #P_rot[1];
+#debug_var_3 := #P_rot[2];
+#debug_var_4 := #B_rot[0];
+#debug_var_5 := #B_rot[1];
+#debug_var_6 := #B_rot[2];
+
+#P_prime[1] := #P_rot[1];
+#P_prime[2] := #P_rot[2];
+
+#x_o := #P_rot[0];
+#phi := SQRT(#l2 * #l2 - #x_o * #x_o);
+
+"CIRCLE_INTERSECTION"(y => #y,
+                      z => #z,
+                      C1 := #B_rot,
+                      C2 := #P_prime,
+                      r1 := #l1,
+                      r2 := #phi);
+
+#solutions[0, 1] := #y[0];
+#solutions[0, 2] := #z[0];
+#solutions[1, 1] := #y[1];
+#solutions[1, 2] := #z[1];
+
+
+IF #solutions[0, 1] < #solutions[1, 1] THEN
+    // Statement section IF
+    #min_y_idx := 0;
+    
+ELSE
+    #min_y_idx := 1;
+END_IF;
+
+
+#P_j_rot[0] := #solutions[#min_y_idx, 0];
+#P_j_rot[1] := #solutions[#min_y_idx, 1];
+#P_j_rot[2] := #solutions[#min_y_idx, 2];
+
+"VEC_MAT_MULTIPLICATION"(result => #P_j,
+                         mat := #R,
+                         vec := #P_j_rot);
+
+#debug_var_1 := #P_j[0];
+#debug_var_2 := #P_j[1];
+#debug_var_3 := #P_j[2];
+
+#theta := "ATAN2"(Y := #P_j_rot[2], X := #B_rot[1] - #P_j_rot[1]);
+

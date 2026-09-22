@@ -1,0 +1,43 @@
+
+"Data_block_1".point_reached := 0;
+"Data_block_1".at_home := 0;
+
+// Kinematics 
+"DELTA_INVERSE_KINEMATICS"(rho_b:="Data_block_1".rho_b,
+                           rho_p:="Data_block_1".rho_p,
+                           l1:="Data_block_1".l1,
+                           l2:="Data_block_1".l2,
+                           o_ef:=#o_ef,
+                           "theta1"=>"Data_block_1".theta1,
+                           theta2=>"Data_block_1".theta2,
+                           theta3=>"Data_block_1".theta3,
+                           P_J1=>"Data_block_1".PJ_1,
+                           P_J2=>"Data_block_1".PJ_2,
+                           P_J3=>"Data_block_1".PJ_3);
+
+// Pulses to move
+"ANGLE_2_PULSES"(desired_theta := "Data_block_1".theta1,
+                 current_theta := "Data_block_1".c_theta1,
+                 pulses => #pulses1);
+
+"ANGLE_2_PULSES"(desired_theta := "Data_block_1".theta2,
+                 current_theta := "Data_block_1".c_theta2,
+                 pulses => #pulses2);
+
+"ANGLE_2_PULSES"(desired_theta := "Data_block_1".theta3,
+                 current_theta := "Data_block_1".c_theta3,
+                 pulses => #pulses3);
+
+// move motors
+"ACTIVATE_MOTORS_DB"(pulses1:=#pulses1,
+                     pulses2:=#pulses2,
+                     pulses3:=#pulses3);
+
+
+// above token
+IF "Data_block_1".point_reached = 1 THEN
+    // Statement section IF
+    "SET_ANGLES"();
+END_IF;
+
+

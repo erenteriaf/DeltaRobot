@@ -1,0 +1,127 @@
+// Rotation 120
+#R2_1[0, 0] := -0.5;
+#R2_1[0, 1] := -SQRT(3)/2 ;
+#R2_1[0, 2] := 0.0;
+#R2_1[1, 0] := SQRT(3) / 2;
+#R2_1[1, 1] := -0.5;
+#R2_1[1, 2] := 0.0;
+#R2_1[2, 0] := 0.0;
+#R2_1[2, 1] := 0.0;
+#R2_1[2, 2] := 1;
+
+// Rotation -120
+#R3_1[0, 0] := -0.5;
+#R3_1[0, 1] :=  SQRT(3) / 2;
+#R3_1[0, 2] := 0.0;
+#R3_1[1, 0] := - SQRT(3) / 2;
+#R3_1[1, 1] := -0.5;
+#R3_1[1, 2] := 0.0;
+#R3_1[2, 0] := 0.0;
+#R3_1[2, 1] := 0.0;
+#R3_1[2, 2] := 1;
+
+#B1[0] := 18.8 / 1000;
+#B1[1] := - #rho_b;
+#B1[2] :=  0;
+
+"VEC_MAT_MULTIPLICATION"(result => #B2,
+                         mat := #R2_1,
+                         vec := #B1);
+
+#debug_var_1 := #B2[0];
+#debug_var_2 := #B2[1];
+#debug_var_3 := #B2[2];
+
+"VEC_MAT_MULTIPLICATION"(result => #B3,
+                         mat := #R3_1,
+                         vec := #B1);
+
+#debug_var_1 := #B3[0];
+#debug_var_2 := #B3[1];
+#debug_var_3 := #B3[2];
+
+#rho_p_vect[1] := - #rho_p;
+"VEC_MAT_MULTIPLICATION"(result => #"P2_",
+                         mat := #R2_1,
+                         vec := #rho_p_vect);
+
+#debug_var_1 := #"P2_"[0];
+#debug_var_2 := #"P2_"[1];
+#debug_var_3 := #"P2_"[2];
+
+"VEC_MAT_MULTIPLICATION"(result => #"P3_",
+                         mat := #R3_1,
+                         vec := #rho_p_vect);
+#debug_var_1 := #"P3_"[0];
+#debug_var_2 := #"P3_"[1];
+#debug_var_3 := #"P3_"[2];
+
+#debug_var_1 := #P1[0];
+#debug_var_2 := #P1[1];
+#debug_var_3 := #P1[2];
+
+"VEC_SUM"(Output => #P1,
+          A := #o_ef,
+          B := #rho_p_vect);
+
+#debug_var_1 := #P1[0];
+#debug_var_2 := #P1[1];
+#debug_var_3 := #P1[2];
+
+"VEC_SUM"(Output => #P2,
+          A := #o_ef,
+          B := #"P2_");
+
+#debug_var_1 := #P2[0];
+#debug_var_2 := #P2[1];
+#debug_var_3 := #P2[2];
+
+"VEC_SUM"(Output => #P3,
+          A := #o_ef,
+          B := #"P3_");
+
+#debug_var_1 := #P3[0];
+#debug_var_2 := #P3[1];
+#debug_var_3 := #P3[2];
+
+#eye[0, 0] := 1.0;
+#eye[1, 1] := 1.0;
+#eye[2, 2] := 1.0;
+
+#debug_var_1 := #P_J1[0];
+#debug_var_2 := #P_J1[1];
+#debug_var_3 := #P_J1[2];
+
+#debug_var_1 := #P_J2[0];
+#debug_var_2 := #P_J2[1];
+#debug_var_3 := #P_J2[2];
+
+#debug_var_1 := #P_J3[0];
+#debug_var_2 := #P_J3[1];
+#debug_var_3 := #P_J3[2];
+
+"COMPUTE_THETA"(theta => #theta1,
+                P_j => #P_J1,
+                B := #B1,
+                P := #P1,
+                l1 := #l1,
+                l2 := #l2,
+                R := #eye);
+
+"COMPUTE_THETA"(theta => #theta2,
+                P_j => #P_J2,
+                B := #B2,
+                P := #P2,
+                l1 := #l1,
+                l2 := #l2,
+                R := #R2_1);
+
+"COMPUTE_THETA"(theta => #theta3,
+                P_j => #P_J3,
+                B := #B3,
+                P := #P3,
+                l1 := #l1,
+                l2 := #l2,
+                R := #R3_1);
+
+

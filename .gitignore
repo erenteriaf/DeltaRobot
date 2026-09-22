@@ -1,0 +1,12 @@
+# SolidWorks lock/temp files
+~$*
+*.SLDBAK
+
+# URDF export and its simplified source assembly (not part of the portfolio)
+URDF/
+cad/Subassem/Delta_Assembly Simplified.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
