@@ -58,7 +58,7 @@ $$\phi_i = \sqrt{l_2^2 - x_i^2}$$
 
 where $x_i$ is the out-of-plane offset. The elbow is the intersection of this circle with the biceps circle of radius $l_1$ around the shoulder, and the crank angle follows from the elbow position:
 
-$$\theta_i = \mathrm{atan2}\left(z_{J_i},\, y_{B_i} - y_{J_i}\right)$$
+$$\theta_i = \mathrm{atan2}\left(z_{J_i}, y_{B_i} - y_{J_i}\right)$$
 
 Two intersections exist; the one with the smallest $y$ is the outward elbow the machine is built in. Targets where the circles do not intersect are rejected as unreachable, which is the same test the workspace sweep below is built on.
 
