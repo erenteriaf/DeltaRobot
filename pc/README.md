@@ -22,5 +22,5 @@ Run it from this folder: `main.py` resolves `sounds/` relative to the working
 directory. The PLC is expected at `192.168.0.1` (rack 0, slot 1) and the Cognex
 job at `127.0.0.1:5001`, both set at the top of their modules.
 
-Motion is point to point with fixed `sleep` delays rather than completion
-handshakes, which is the main thing holding the cycle time back.
+The loop triggers on the rising edge of the PLC turn flag and paces each leg of
+the move with fixed delays, so a turn runs as a fixed point-to-point sequence.

@@ -7,8 +7,6 @@ Delta Tec Challenge, *Design and Development of Robots*, Tecnológico de Monterr
 <!-- Replace with a photo or GIF of the physical robot playing -->
 <!-- ![Delta robot playing tic-tac-toe](docs/demo.gif) -->
 
-![Kinematics](docs/kinematics.png)
-
 ## System overview
 
 ```mermaid
@@ -50,24 +48,41 @@ A static FEA of the full assembly (551 contact sets) under a 2 kg payload gave a
 | Forearm length (rod-end center to center), $l_2$ | 476 mm |
 | Platform radius, $\rho_P$ | 100 mm |
 
-**Inverse kinematics** is solved in closed form, arm by arm. For arm *i*, the target platform joint is rotated into that arm's plane (0°, 120°, 240° about *z*). The forearm, a sphere of radius $l_2$ around the platform joint, cuts that plane in a circle of radius
+Three MATLAB models in `kinematics/`, each a runnable script that prints its result and draws the robot: `DeltaRobotInvKinematics.m`, `DeltaRobotFwdKinematics.m` and `DeltaRobotWorkspace.m`.
+
+### Inverse kinematics
+
+Solved in closed form, arm by arm, which is what makes it portable to a PLC scan. For arm *i*, the target platform joint is rotated into that arm's plane (0°, 120°, 240° about *z*). The forearm, a sphere of radius $l_2$ around the platform joint, cuts that plane in a circle of radius
 
 $$\phi_i = \sqrt{l_2^2 - x_i^2}$$
 
-where $x_i$ is the out-of-plane offset. The elbow is the intersection of this circle with the biceps circle of radius $l_1$ around the shoulder, and
+where $x_i$ is the out-of-plane offset. The elbow is the intersection of this circle with the biceps circle of radius $l_1$ around the shoulder, and the crank angle follows from the elbow position:
 
-$$\theta_i = \operatorname{atan2}\left(z_{J_i},\; y_{B_i} - y_{J_i}\right)$$
+$$\theta_i = \mathrm{atan2}\left(z_{J_i},\, y_{B_i} - y_{J_i}\right)$$
 
-taking the outward elbow configuration. Targets where the circles do not intersect are rejected as unreachable.
+Two intersections exist; the one with the smallest $y$ is the outward elbow the machine is built in. Targets where the circles do not intersect are rejected as unreachable, which is the same test the workspace sweep below is built on.
 
-**Forward kinematics** shifts each elbow inward by $\rho_P$, which collapses the platform to a point, and solves for the platform center as the intersection of three spheres of radius $l_2$, keeping the solution below the base.
+![Inverse kinematics solution at the board center](docs/kinematics.png)
 
-Both models were written in MATLAB and cross-checked as exact inverses of each other. The IK was then ported to Structured Text (SCL) on the PLC, including the helper routines it needs (matrix-vector products, circle intersection, `atan2`), since the S7-1200 has no linear algebra library.
+### Forward kinematics
 
-**Workspace.** Sweeping a Cartesian grid and keeping the points where all three arms have a real IK solution maps the reachable volume as a point cloud, and gives the usable radius at each working height, which is what fixes the height of the board and the token feed.
+The inverse problem: given the three crank angles, where is the platform? Shifting each elbow inward by $\rho_P$ collapses the moving platform to a single point, so the three forearms become three spheres of radius $l_2$ that intersect at the platform center. Of the two intersections, the one below the base is the physical one.
 
-<!-- Run kinematics/DeltaRobotWorkspace.m and save the figure here -->
-<!-- ![Reachable workspace](docs/workspace.png) -->
+This is what fixes the reference for the whole open-loop chain: homing jogs each arm onto its limit switch, and the forward kinematics of the three switch angles gives the Cartesian home the PLC latches.
+
+<p align="center"><img src="docs/forward_kinematics.svg" width="720" alt="Forward kinematics at the homed pose"></p>
+
+### Workspace
+
+`DeltaRobotWorkspace.m` sweeps a Cartesian grid and keeps every point where all three arms have a real IK solution, which turns the reachability test into a map of where the robot can actually be commanded. Counting the surviving cells estimates the volume, and the largest disc available at each height is what fixes the working plane for the board and the token feed.
+
+The geometric envelope is about 425 L, reaching ±432 mm at the board height of *z* = -500 mm and bottoming out at *z* = -784 mm. It is a bound, not a promise: the sweep leaves the crank angles unbounded by default, so the envelope includes poses the mechanics cannot reach. Setting `theta_lim` to the real travel trims it to the usable workspace.
+
+<p align="center"><img src="docs/workspace.svg" width="760" alt="Reachable workspace, boundary surface"></p>
+
+<p align="center"><img src="docs/workspace_section.svg" width="700" alt="Workspace cross section at y = 0"></p>
+
+Both kinematic models were cross-checked as exact inverses of each other. The IK was then ported to Structured Text (SCL) on the PLC, including the helper routines it needs (matrix-vector products, circle intersection, `atan2`), since the S7-1200 has no linear algebra library.
 
 ## Control and autonomy
 
@@ -92,16 +107,18 @@ Both models were written in MATLAB and cross-checked as exact inverses of each o
 | `cad/Simulation/` | Static FEA study |
 | `docs/` | Figures used in this README |
 
-`plc/` and `pc/` hold the team's control code, mirrored from [VicmanGT/delta-robot](https://github.com/VicmanGT/delta-robot) so the repository is self-contained. Each has its own README describing the blocks and modules.
+`plc/` and `pc/` each have their own README describing the blocks and modules they contain.
 
 ## Team and my role
 
-Carolina Ruiz Alonso, Marco Adrián Rodríguez Gutiérrez, Luis Ignacio Ramírez Godínez, Emiliano Rafael Rentería Flores, Luis Ricardo Vázquez Fernández, Víctor Manuel Gil Tafolla.
+| Member | GitHub |
+|---|---|
+| Carolina Ruiz Alonso | |
+| Emiliano Rafael Rentería Flores | [@erenteriaf](https://github.com/erenteriaf) |
+| Luis Ignacio Ramírez Godínez | |
+| Luis Ricardo Vázquez Fernández | |
+| Marco Adrián Rodríguez Gutiérrez | |
+| Víctor Manuel Gil Tafolla | [@VicmanGT](https://github.com/VicmanGT) |
 
 <!-- Confirm and edit -->
 My contributions: mechanical design, part manufacturing, and the kinematic model (MATLAB), including the IK formulation later implemented on the PLC. Integration and testing were done jointly with the team.
-
-## Limitations and next steps
-
-- Motion is point to point with fixed delays on the PC side. A trajectory generator with synchronized axes and completion handshakes would raise speed and reliability.
-- Positioning is open loop from homing, and board coordinates were tuned by hand. Kinematic calibration (identifying link lengths and joint offsets from measured poses) is the natural next step.
