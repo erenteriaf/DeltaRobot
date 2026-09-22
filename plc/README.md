@@ -45,4 +45,6 @@ main                       flags in/out, dispatches on start_play / go_home / go
 | `out_homing.scl` | Jogs each arm off its switch, the inverse of `homing` |
 
 Positioning is open loop from the homed state: `SET_ANGLES` keeps the current joint
-angles in the data block, and every move is commanded relative to them.
+angles in the data block, and every move is commanded relative to them. The Cartesian
+home latched by `HOMING` is therefore the origin of the whole chain, and is set to the
+forward kinematics of the three switch angles rather than to a measured value.

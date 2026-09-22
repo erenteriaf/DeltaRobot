@@ -99,12 +99,15 @@ IF #arm_1_home = 1 AND #arm_2_home =1 AND #arm_3_home = 1 THEN
     "Data_block_1".at_home := 1;
     "Data_block_1".go_home := 0;
     "Data_block_1".point_reached := 0;
+    // Crank angles at the limit switches, one per arm
     "Data_block_1".c_theta1 := 16.0;
     "Data_block_1".c_theta2 := 12.0;
     "Data_block_1".c_theta3 := 9.0;
-    "Data_block_1".c_o_ef[0] := 2.61;
-    "Data_block_1".c_o_ef[1] := -13.23;
-    "Data_block_1".c_o_ef[2] := -258.7;
+    // Matching platform position, from the forward kinematics of those three
+    // angles with the as-built dimensions (rho_b 215.8, rho_p 100, l1 320, l2 476)
+    "Data_block_1".c_o_ef[0] := 2.59;
+    "Data_block_1".c_o_ef[1] := -5.26;
+    "Data_block_1".c_o_ef[2] := -139.23;
     
 END_IF;
 
