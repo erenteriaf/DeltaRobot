@@ -68,9 +68,7 @@ Two intersections exist; the one with the smallest $y$ is the outward elbow the 
 
 The inverse problem: given the three crank angles, where is the platform? Shifting each elbow inward by $\rho_P$ collapses the moving platform to a single point, so the three forearms become three spheres of radius $l_2$ that intersect at the platform center. Of the two intersections, the one below the base is the physical one.
 
-This is what fixes the reference for the whole open-loop chain: homing jogs each arm onto its limit switch, and the forward kinematics of the three switch angles gives the Cartesian home the PLC latches.
-
-<p align="center"><img src="docs/forward_kinematics.svg" width="720" alt="Forward kinematics at the homed pose"></p>
+This is what fixes the reference for the whole open-loop chain: homing jogs each arm onto its limit switch, and the forward kinematics of those three switch angles, 16°, 12° and 9°, gives the Cartesian home the PLC latches, (2.59, -5.26, -139.23) mm.
 
 ### Workspace
 
@@ -82,17 +80,24 @@ This is what fixes the reference for the whole open-loop chain: homing jogs each
 4. **Serial singularity.** Biceps and forearm lined up in the arm plane, at the edge of reach, where the arm gains no velocity along the forearm.
 5. **Parallel singularity.** The three forearms approaching a common plane. Their unit vectors are the rows of the platform Jacobian, so the determinant collapsing means the platform loses its stiffness and the rods take the load instead of the cranks.
 
-Each test is a large cut. Loop closure alone claims **425 L** and lets the platform climb to *z* = -20 mm out at the rim. Adding the crank stops and the two singularity margins brings it to **218 L**. Adding the rod ends at their catalogue ±14° leaves **24 L**: a column of radius 125 mm running from *z* = -146 mm down to *z* = -781 mm.
-
-<p align="center"><img src="docs/workspace_section.svg" width="700" alt="Workspace cross section at y = 0"></p>
+Each test is a large cut. Loop closure alone claims **425 L** and lets the platform climb to *z* = -20 mm out at the rim, arms folded into poses the machine cannot hold. The crank stops and the two singularity margins bring that to 218 L, and the rod ends bring it to **133 L**: a bowl from *z* = -151 mm at its apex, directly under the base, down to *z* = -781 mm, never wider than 351 mm in radius. The apex sits just below the homed height, as it should, since the arms are against their stops there and the platform cannot rise any further.
 
 <p align="center"><img src="docs/workspace.svg" width="760" alt="Usable workspace, boundary surface"></p>
 
-### What this says about the machine
+### Against the envelope the cell was built to
 
-The points in the cross section are the positions the robot actually worked at, and most of them are outside that rated column. The center of the board asks for 14.8° of rod-end misalignment, the far corners 24° to 26°, and the outermost token in the feed 32.4°, well over double the catalogue figure. The robot played whole games from those positions, so the joints were running far past their rated misalignment rather than the poses being impossible.
+The working volume assumed when the cell was laid out was a box, *x* and *y* within ±210 mm of the base axis and *z* from -235 mm to -655 mm. Checking it against the model is the useful test, and it disagrees in one place:
 
-That is the most useful thing the sweep turned up. The board and the token feed were positioned by hand, on the bench, without checking them against a workspace model, and the model says they should have been kept inside a 125 mm radius of the base axis. Kinematic calibration is the usual next step for a machine like this; on this one, sizing the task to the joints comes first.
+| | Assumed box | Model |
+|---|---|---|
+| Top of travel, on the axis | -235 mm | -151 mm |
+| Top of travel, at the box corner (*r* = 297 mm) | -235 mm | -352 mm |
+| Bottom of travel | -655 mm | -781 mm |
+| Rod-end swivel demanded at the worst corner | not checked | 37.1° |
+
+The floor and the width are fine, with room to spare. The ceiling is not: at the corners of that box the arms are already against their limit switches by *z* = -352 mm, so the top 120 mm of the assumed volume is only reachable near the axis. Every height the robot actually ran at, -400 mm for transits and -500 to -522 mm for the board and the token feed, sits well inside the real bowl, so the optimism never cost anything in practice.
+
+The rod-end figure is the loose end. Holding that box takes 37.1° of misalignment at its worst corner, and `beta_max` is set to 40° to match, which is inferred from the layout rather than measured. A catalogue M6 rod end allows nothing like that, so either the parts are not standard or the joints were working well past their rating. That number is worth putting a protractor to before trusting the bowl at its widest.
 
 The limits all sit at the top of `DeltaRobotWorkspace.m` as `theta_max`, `beta_max`, `det_min` and `ser_min`. Setting the first two to `Inf` and the margins to zero gives the geometric envelope back, which is a useful check but not a place to send the robot.
 

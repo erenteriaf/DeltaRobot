@@ -11,15 +11,15 @@ rho_p = 100;   % End-effector radius [mm]
 % Mechanical Limits (Input)
 theta_max = [16, 12, 9]; % Crank angle at each limit switch, upper stop [deg]
 theta_min = -Inf;        % Lower stop, not measured on the machine [deg]
-beta_max  = 14;          % Rod-end swivel the M6 rod ends allow, catalogue value [deg]
+beta_max  = 40;          % Rod-end swivel the forearm asks of its rod ends [deg].
+                         % Inferred, not measured: the envelope the cell was
+                         % laid out for needs 37.1 deg at its worst corner.
 det_min   = 0.15;        % Parallel singularity margin, 0 = forearms coplanar
 ser_min   = 0.15;        % Serial singularity margin, 0 = arm stretched or folded
 
 % Sweep Settings (Input)
 res  = 15;                % Grid resolution [mm]
-o_ef = [0; 0; -500];      % Sample pose drawn inside the cloud, in mm
-                          % The board center, [-70; 100; -500], needs 14.8 deg
-                          % of rod-end swivel and falls outside at beta_max = 14
+o_ef = [-70; 100; -500];  % Sample pose drawn inside the cloud, in mm
 
 %% Function Call
 DeltaWorkspace(rho_b, rho_p, l1, l2, theta_max, theta_min, beta_max, det_min, ser_min, res, o_ef)
@@ -41,7 +41,7 @@ DeltaWorkspace(rho_b, rho_p, l1, l2, theta_max, theta_min, beta_max, det_min, se
 % Conditions 2 to 5 are the difference between the geometric envelope and the
 % workspace the machine can work in, and they are not a detail: closure alone
 % gives 425 L, the crank stops and the two margins bring it to 218 L, and the
-% rod ends bring it to 24 L. Setting theta_max and beta_max to Inf and both
+% rod ends bring it to 133 L. Setting theta_max and beta_max to Inf and both
 % margins to 0 gives the envelope back.
 function DeltaWorkspace(rho_b, rho_p, l1, l2, theta_max, theta_min, beta_max, det_min, ser_min, res, o_ef)
 
