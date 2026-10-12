@@ -118,6 +118,8 @@ Both kinematic models were cross-checked as exact inverses of each other. The IK
 | `kinematics/` | MATLAB forward and inverse kinematics and the workspace map, with 3D visualization |
 | `plc/` | Structured Text blocks running on the S7-1200: inverse kinematics, homing, axis motion |
 | `pc/` | Python vision client, PLC link, and the minimax game layer |
+| `sim/` | Simulator of the chess variant: the turn loop against a stand-in for the PLC, with the robot animated from its joint angles |
+| `orin_nano/` | The chess cell rebuilt without the PLC or the Cognex: Jetson Orin Nano, an Arduino step generator and a USB camera, with a bring-up guide |
 | `cad/Subassem/` | Full delta assembly and its subassemblies (base, forearm, end effector, drive) |
 | `cad/Aluminum Parts/` | Machined structural parts |
 | `cad/Mechanical Elements/` | Purchased components: motor, bearings, couplings, limit switch, camera, gripper |

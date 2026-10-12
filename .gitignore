@@ -11,3 +11,7 @@ __pycache__/
 *.pyc
 .venv/
 sim/stockfish/
+
+# Made on the machine by orin_nano/vision.py
+orin_nano/camera_calibration.npz
+orin_nano/marker_*.png
