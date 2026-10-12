@@ -10,6 +10,7 @@ calls with the same names.
 
 You play white, the robot plays black.
 """
+import math
 import threading
 import tkinter as tk
 
@@ -21,236 +22,127 @@ import kinematics as K
 import plc_sim as plc
 
 HUMAN, ROBOT = chess.WHITE, chess.BLACK
-
-GLYPH = {'p': '♟', 'n': '♞', 'b': '♝',
-         'r': '♜', 'q': '♛', 'k': '♚'}
+GLYPH = dict(zip('pnbrqk', '♟♞♝♜♛♚'))
 
 # Colours, dark so the robot view reads well next to the board
-BG, PANEL, LINE, INK, DIM = '#11131a', '#181b24', '#2a2f3d', '#e7e9ef', '#8b93a7'
+BG, PANEL, INK, DIM = '#11131a', '#181b24', '#e7e9ef', '#8b93a7'
 LIGHT, DARK, MARK = '#b7c0d8', '#63708f', '#3fb950'
 ACCENT, WARN, BAD = '#7c5cff', '#d29922', '#f85149'
 
-CELL = 54                 # Board square on screen [px]
-VIEW = 430                # Robot view, square [px]
+CELL = 54    # Board square on screen [px]
+VIEW = 430   # Robot view, square [px]
 
-
-def steps_for_move(board, move):
-    """The robot steps a chess move turns into, before any of it runs.
-
-    Plain data so the interface can show what is about to happen, and so the
-    sequence can be checked without a robot. A capture clears the destination
-    first, the way a person would.
-    """
-    source = chess.square_name(move.from_square)
-    destination = chess.square_name(move.to_square)
-    steps = []
-
-    if board.is_capture(move):
-        taken = destination
-        if board.is_en_passant(move):
-            # The pawn that goes is the one beside the destination, not on it
-            offset = -8 if board.turn == chess.WHITE else 8
-            taken = chess.square_name(move.to_square + offset)
-        steps += [
-            ('move',   B.get_coordinates(taken, B.Z_HIGH),  f"over {taken}"),
-            ('move',   B.get_coordinates(taken, B.Z_LOW),   f"down to {taken}"),
-            ('magnet', 1,                                   "grab the captured piece"),
-            ('move',   B.get_coordinates(taken, B.Z_HIGH),  "lift"),
-            ('move',   B.discard_point(B.Z_HIGH),           "over the discard pile"),
-            ('move',   B.discard_point(B.Z_DISCARD),        "down to the pile"),
-            ('magnet', 0,                                   "release"),
-            ('move',   B.discard_point(B.Z_HIGH),           "lift"),
-        ]
-
-    steps += [
-        ('move',   B.get_coordinates(source, B.Z_HIGH),      f"over {source}"),
-        ('move',   B.get_coordinates(source, B.Z_LOW),       f"down to {source}"),
-        ('magnet', 1,                                        f"grab the piece on {source}"),
-        ('move',   B.get_coordinates(source, B.Z_HIGH),      "lift"),
-        ('move',   B.get_coordinates(destination, B.Z_HIGH), f"over {destination}"),
-        ('move',   B.get_coordinates(destination, B.Z_LOW),  f"down to {destination}"),
-        ('magnet', 0,                                        f"release on {destination}"),
-        ('move',   B.get_coordinates(destination, B.Z_HIGH), "lift"),
-        ('home',   None,                                     "back home"),
-    ]
-    return steps
+# MATLAB's view(3) direction, az -37.5, el 20
+AZ, EL = math.radians(-37.5), math.radians(20.0)
+U = (-math.sin(AZ), math.cos(AZ), 0.0)
+V = (-math.cos(AZ) * math.sin(EL), -math.sin(AZ) * math.sin(EL), math.cos(EL))
 
 
 class Simulator:
     def __init__(self, root):
-        self.root = root
-        self.board = chess.Board()
-        self.engine = chess_engine.Engine()
-        self.selected = None
-        self.last_move = None
-        self.steps = []
-        self.step_index = -1
-        self.running = False
+        self.root, self.board, self.engine = root, chess.Board(), chess_engine.Engine()
+        self.selected = self.last_move = self.finished = self.shown = None
+        self.steps, self.step_index, self.running = [], -1, False
         self.log = ["simulator ready, the robot plays black"]
 
         root.title("Delta Chess Simulator")
         root.configure(bg=BG)
-
-        header = tk.Label(root, bg=BG, fg=DIM, anchor='w', padx=14, pady=8,
-                          font=('Segoe UI', 10),
-                          text=f"you play white, the robot plays black   "
-                               f"engine: {self.engine.name}   "
-                               f"board: {B.BOARD:.0f} x {B.BOARD:.0f} mm")
-        header.grid(row=0, column=0, columnspan=3, sticky='we')
-
-        self.board_canvas = tk.Canvas(root, width=8 * CELL, height=8 * CELL,
-                                      bg=PANEL, highlightthickness=0)
+        tk.Label(root, bg=BG, fg=DIM, anchor='w', padx=14, pady=8, font=('Segoe UI', 10),
+                 text=f"you play white, the robot plays black   engine: {self.engine.name}   "
+                      f"board: {B.BOARD:.0f} x {B.BOARD:.0f} mm").grid(row=0, column=0, columnspan=3, sticky='we')
+        self.board_canvas = tk.Canvas(root, width=8 * CELL, height=8 * CELL, bg=PANEL, highlightthickness=0)
         self.board_canvas.grid(row=1, column=0, padx=(14, 7), pady=7)
         self.board_canvas.bind('<Button-1>', self.on_click)
-
-        self.robot_canvas = tk.Canvas(root, width=VIEW, height=VIEW,
-                                      bg=PANEL, highlightthickness=0)
+        self.robot_canvas = tk.Canvas(root, width=VIEW, height=VIEW, bg=PANEL, highlightthickness=0)
         self.robot_canvas.grid(row=1, column=1, padx=7, pady=7)
 
-        self.panel = tk.Frame(root, bg=PANEL, padx=12, pady=10)
-        self.panel.grid(row=1, column=2, padx=(7, 14), pady=7, sticky='ns')
-        self.build_panel()
-
-        self.status = tk.Label(root, bg=BG, fg=DIM, anchor='w', padx=14, pady=8,
-                               font=('Consolas', 9), justify='left')
+        panel = tk.Frame(root, bg=PANEL, padx=12, pady=10)
+        panel.grid(row=1, column=2, padx=(7, 14), pady=7, sticky='ns')
+        self.readout = {}
+        for name, colour, font in (("TELEMETRY", INK, ('Consolas', 10)), ("END EFFECTOR", INK, ('Consolas', 10)),
+                                   ("ACTION", ACCENT, ('Consolas', 10, 'bold')), ("SEQUENCE", DIM, ('Consolas', 9))):
+            tk.Label(panel, text=name, bg=PANEL, fg=DIM, anchor='w', font=('Segoe UI', 8, 'bold')).pack(fill='x', pady=(8, 2))
+            self.readout[name] = tk.Label(panel, bg=PANEL, fg=colour, anchor='w', justify='left', wraplength=220, font=font)
+            self.readout[name].pack(fill='x')
+        tk.Button(panel, text="New game", command=self.new_game, bg='#232734', fg=INK,
+                  relief='flat', padx=10, activebackground=ACCENT).pack(pady=(12, 0), fill='x')
+        self.status = tk.Label(root, bg=BG, fg=DIM, anchor='w', padx=14, pady=8, font=('Consolas', 9))
         self.status.grid(row=2, column=0, columnspan=3, sticky='we')
 
-        tk.Button(self.panel, text="New game", command=self.new_game,
-                  bg='#232734', fg=INK, relief='flat', padx=10,
-                  activebackground=ACCENT).pack(pady=(12, 0), fill='x')
-
-        self.fit_view()
-        self.draw_board()
+        self.draw_scene()
         self.tick()
 
-    # ---------- telemetry panel ----------
-    def build_panel(self):
-        def heading(text):
-            tk.Label(self.panel, text=text, bg=PANEL, fg=DIM, anchor='w',
-                     font=('Segoe UI', 8, 'bold')).pack(fill='x', pady=(8, 2))
-
-        def readout():
-            label = tk.Label(self.panel, bg=PANEL, fg=INK, anchor='w',
-                             justify='left', font=('Consolas', 10))
-            label.pack(fill='x')
-            return label
-
-        heading("TELEMETRY")
-        self.joint_label = readout()
-        heading("END EFFECTOR")
-        self.pose_label = readout()
-        heading("ACTION")
-        self.action_label = tk.Label(self.panel, bg=PANEL, fg=ACCENT, anchor='w',
-                                     justify='left', wraplength=210,
-                                     font=('Consolas', 10, 'bold'))
-        self.action_label.pack(fill='x')
-        heading("SEQUENCE")
-        self.steps_label = tk.Label(self.panel, bg=PANEL, fg=DIM, anchor='w',
-                                    justify='left', font=('Consolas', 9))
-        self.steps_label.pack(fill='x')
+    def note(self, text):
+        self.log = (self.log + [text])[-6:]
 
     # ---------- the board, which stands in for the camera ----------
     def draw_board(self):
+        """Redraw only when the position, the selection or the last move changed."""
+        if self.shown == (self.board.fen(), self.selected, self.last_move):
+            return
+        self.shown = (self.board.fen(), self.selected, self.last_move)
         canvas = self.board_canvas
         canvas.delete('all')
-        legal = [m.uci() for m in self.board.legal_moves]
+        targets = {m.uci()[2:4] for m in self.board.legal_moves if m.uci()[:2] == self.selected}
         for row in range(8):
             for column in range(8):
-                name = B.FILES[column] + B.RANKS[7 - row]
-                x, y = column * CELL, row * CELL
-                fill = LIGHT if (row + column) % 2 == 0 else DARK
-                if self.last_move and name in (self.last_move[:2], self.last_move[2:4]):
-                    fill = MARK
-                canvas.create_rectangle(x, y, x + CELL, y + CELL,
-                                        fill=fill, outline='')
+                name, x, y = B.FILES[column] + B.RANKS[7 - row], column * CELL, row * CELL
+                lit = self.last_move and name in (self.last_move[:2], self.last_move[2:4])
+                canvas.create_rectangle(x, y, x + CELL, y + CELL, outline='',
+                                        fill=MARK if lit else LIGHT if (row + column) % 2 == 0 else DARK)
                 if name == self.selected:
-                    canvas.create_rectangle(x + 2, y + 2, x + CELL - 2, y + CELL - 2,
-                                            outline=ACCENT, width=3)
-                elif self.selected and self.selected + name in legal:
-                    canvas.create_oval(x + CELL / 2 - 7, y + CELL / 2 - 7,
-                                       x + CELL / 2 + 7, y + CELL / 2 + 7,
+                    canvas.create_rectangle(x + 2, y + 2, x + CELL - 2, y + CELL - 2, outline=ACCENT, width=3)
+                elif name in targets:
+                    canvas.create_oval(x + CELL / 2 - 7, y + CELL / 2 - 7, x + CELL / 2 + 7, y + CELL / 2 + 7,
                                        fill=ACCENT, outline='')
                 piece = self.board.piece_at(chess.parse_square(name))
                 if piece:
-                    canvas.create_text(
-                        x + CELL / 2, y + CELL / 2 + 2,
-                        text=GLYPH[piece.symbol().lower()],
-                        fill='#ffffff' if piece.color == chess.WHITE else '#10121a',
-                        font=('Segoe UI Symbol', 30))
+                    canvas.create_text(x + CELL / 2, y + CELL / 2 + 2, text=GLYPH[piece.symbol().lower()],
+                                       fill='#ffffff' if piece.color else '#10121a', font=('Segoe UI Symbol', 30))
 
     def on_click(self, event):
-        if self.running or self.board.turn != HUMAN or self.board.is_game_over():
-            return
-        column, row = int(event.x // CELL), int(event.y // CELL)
-        if not (0 <= column < 8 and 0 <= row < 8):
+        column, row = event.x // CELL, event.y // CELL
+        if self.running or self.board.turn != HUMAN or self.board.is_game_over() or not (0 <= column < 8 and 0 <= row < 8):
             return
         name = B.FILES[column] + B.RANKS[7 - row]
-
-        if self.selected is None or self.selected == name:
-            self.selected = None if self.selected == name else name
-            self.draw_board()
-            return
-
-        move = self.legal_move(self.selected + name)
-        self.selected = None
-        if move is None:
-            self.draw_board()
-            return
-
-        self.note(f"you played {self.board.san(move)}")
-        self.board.push(move)
-        self.last_move = move.uci()
-        plc.set_my_turn(True)          # The flag the control script waits on
+        move = self.legal_move(self.selected + name) if self.selected not in (None, name) else None
+        if move:
+            self.note(f"you played {self.board.san(move)}")
+            self.board.push(move)
+            self.last_move, self.selected = move.uci(), None
+            plc.set_my_turn(True)                # The flag the control script waits on
+        else:                                    # Pick a piece, or drop the selection
+            piece = self.board.piece_at(chess.parse_square(name))
+            self.selected = name if piece and piece.color == HUMAN and name != self.selected else None
         self.draw_board()
 
     def legal_move(self, uci):
-        """A move from two clicks, promoting to a queen when the board asks."""
-        for candidate in self.board.legal_moves:
-            if candidate.uci() == uci or candidate.uci()[:4] == uci:
-                return candidate
-        return None
+        """The move two clicks describe, promoting to a queen when a pawn reaches the end."""
+        return next((m for m in (chess.Move.from_uci(uci), chess.Move.from_uci(uci + 'q'))
+                     if m in self.board.legal_moves), None)
 
     # ---------- the robot's turn ----------
     def robot_turn(self):
-        if self.running or self.board.turn != ROBOT or self.board.is_game_over():
+        if self.running or self.board.turn != ROBOT or self.board.is_game_over() or not plc.read_my_turn():
             return
-        if not plc.read_my_turn():
-            return
-
         move = self.engine.play(self.board)
-        if move is None:
-            return
         self.note(f"robot plays {self.board.san(move)}")
-        self.steps = steps_for_move(self.board, move)
-        self.step_index = -1
-        self.running = True
+        self.steps, self.step_index, self.running = B.steps_for_move(self.board, move), -1, True
         threading.Thread(target=self.run_move, args=(move,), daemon=True).start()
 
     def run_move(self, move):
         """Drive the sequence against the PLC, the way pc/main.py drives it."""
-        completed = True
-        for index, (kind, payload, label) in enumerate(self.steps):
-            self.step_index = index
-            plc.set_action(label)
-            if kind == 'move':
-                plc.write_oef(*payload)
-                if not plc.start_play():
-                    completed = False
-                    break
-                plc.wait_idle()
-            elif kind == 'magnet':
-                plc.activate_magnet() if payload else plc.deactivate_magnet()
-                plc.wait_idle(0.35)
-            elif kind == 'home':
-                plc.go_home()
+        ok = B.execute(self.steps, plc, on_step=lambda i: setattr(self, 'step_index', i))
+        self.finished = (move, ok)               # The board is only touched on the interface thread
 
-        plc.set_action("idle")
+    def finish_move(self):
+        if not self.finished:
+            return
+        (move, ok), self.finished = self.finished, None
         self.board.push(move)
-        self.last_move = move.uci()
+        self.last_move, self.running, self.step_index = move.uci(), False, -1
         plc.set_my_turn(False)
-        self.step_index = -1
-        self.running = False
-        if not completed:
+        if not ok:
             self.note("the move did not finish, the PLC reported a fault")
         if self.board.is_game_over():
             self.note(f"game over: {self.board.result()}")
@@ -258,145 +150,84 @@ class Simulator:
     def new_game(self):
         if self.running:
             return
-        self.board = chess.Board()
-        self.selected = None
-        self.last_move = None
-        self.steps = []
-        self.log = ["new game, the robot plays black"]
+        self.board, self.selected, self.last_move, self.steps = chess.Board(), None, None, []
+        self.log, self.running = ["new game, the robot plays black"], True
         plc.set_my_turn(False)
-        threading.Thread(target=plc.go_home, daemon=True).start()
-        self.draw_board()
-
-    def note(self, text):
-        self.log.append(text)
-        del self.log[:-6]
+        threading.Thread(target=lambda: (plc.go_home(), setattr(self, 'running', False)), daemon=True).start()
 
     # ---------- the robot view ----------
-    def fit_view(self):
-        """Scale the drawing so the base, the board and the arms all fit."""
-        points = [[0, 0, 0], B.discard_point(B.Z_DISCARD), [0, 0, B.Z_LOW]]
-        points += [K.shoulder(i) for i in range(3)]
-        points += [B.get_coordinates(f + r, B.Z_LOW) for f in B.FILES for r in B.RANKS]
-        for i in range(3):
-            for angle in (-95.0, 20.0):
-                import math
-                y = -K.RHO_B - K.L1 * math.cos(math.radians(angle))
-                z = K.L1 * math.sin(math.radians(angle))
-                points.append(K._rot(K.ROT[i], [0.0, y, z]))
-
-        flat = [self.flatten(p) for p in points]
-        xs, ys = [f[0] for f in flat], [f[1] for f in flat]
-        margin = 24
-        self.scale = min((VIEW - 2 * margin) / (max(xs) - min(xs)),
-                         (VIEW - 2 * margin) / (max(ys) - min(ys)))
-        self.origin = (margin - min(xs) * self.scale,
-                       margin + max(ys) * self.scale)
-
-    @staticmethod
-    def flatten(point):
-        """Project a 3D point the way MATLAB's view(3) does, az -37.5, el 20."""
-        import math
-        az, el = math.radians(-37.5), math.radians(20.0)
-        u = (-math.sin(az), math.cos(az), 0.0)
-        v = (-math.cos(az) * math.sin(el), -math.sin(az) * math.sin(el), math.cos(el))
-        return (sum(point[k] * u[k] for k in range(3)),
-                sum(point[k] * v[k] for k in range(3)))
-
     def project(self, point):
-        flat = self.flatten(point)
-        return (self.origin[0] + self.scale * flat[0],
-                self.origin[1] - self.scale * flat[1])
+        """3D point to canvas pixels, the way MATLAB's view(3) looks at it."""
+        return (self.origin[0] + self.scale * K.dot(point, U), self.origin[1] - self.scale * K.dot(point, V))
+
+    def dot(self, point, radius, **style):
+        x, y = self.project(point)
+        style.setdefault('outline', '')
+        self.robot_canvas.create_oval(x - radius, y - radius, x + radius, y + radius, **style)
+
+    def draw_scene(self):
+        """Fit the view to the base, the board and the arms, then draw what never moves."""
+        points = [[0, 0, 0], B.discard_point()] + [K.shoulder(i) for i in range(3)]
+        points += [B.get_coordinates(f + r) for f in B.FILES for r in B.RANKS]
+        points += [K.rot(K.ROT[i], [0, -K.RHO_B - K.L1 * math.cos(a), K.L1 * math.sin(a)])
+                   for i in range(3) for a in (math.radians(-95), math.radians(20))]   # Elbows at both ends of travel
+        xs, ys = [K.dot(p, U) for p in points], [K.dot(p, V) for p in points]
+        self.scale = min((VIEW - 48) / (max(xs) - min(xs)), (VIEW - 48) / (max(ys) - min(ys)))
+        self.origin = (24 - min(xs) * self.scale, 24 + max(ys) * self.scale)
+
+        for f in B.FILES:
+            for r in B.RANKS:
+                self.dot(B.get_coordinates(f + r), 2, fill='#39405a')
+        self.dot(B.discard_point(), 5, outline=WARN, width=2)
+        shoulders = [K.shoulder(i) for i in range(3)]
+        self.robot_canvas.create_polygon([c for s in shoulders for c in self.project(s)],
+                                         fill='#2a1618', outline=BAD, width=2)
+        for s in shoulders:
+            self.dot(s, 5, fill=BAD)
 
     def draw_robot(self, data):
-        canvas = self.robot_canvas
-        canvas.delete('all')
-
-        # The board plane, so you can see where the robot is working
-        for file_ in B.FILES:
-            for rank in B.RANKS:
-                x, y = self.project(B.get_coordinates(file_ + rank, B.Z_LOW))
-                canvas.create_oval(x - 2, y - 2, x + 2, y + 2,
-                                   fill='#39405a', outline='')
-        x, y = self.project(B.discard_point(B.Z_DISCARD))
-        canvas.create_oval(x - 5, y - 5, x + 5, y + 5, outline=WARN, width=2)
-
-        # The base
-        shoulders = [K.shoulder(i) for i in range(3)]
-        canvas.create_polygon([c for s in shoulders for c in self.project(s)],
-                              fill='#2a1618', outline=BAD, width=2)
-        for s in shoulders:
-            x, y = self.project(s)
-            canvas.create_oval(x - 5, y - 5, x + 5, y + 5, fill=BAD, outline='')
-
-        pose = data['pose']
+        canvas, pose = self.robot_canvas, data['pose']
+        canvas.delete('arm')
         if not pose:
             return
-        for i in range(3):
-            bx, by = self.project(pose['shoulders'][i])
-            ex, ey = self.project(pose['elbows'][i])
-            jx, jy = self.project(pose['joints'][i])
-            canvas.create_line(bx, by, ex, ey, fill=INK, width=4, capstyle='round')
-            canvas.create_line(ex, ey, jx, jy, fill=MARK, width=3, capstyle='round')
-            canvas.create_oval(ex - 4, ey - 4, ex + 4, ey + 4,
-                               fill='#58a6ff', outline='')
+        for b, e, j in zip(pose['shoulders'], pose['elbows'], pose['joints']):
+            canvas.create_line(*self.project(b), *self.project(e), fill=INK, width=4, capstyle='round', tags='arm')
+            canvas.create_line(*self.project(e), *self.project(j), fill=MARK, width=3, capstyle='round', tags='arm')
+            self.dot(e, 4, fill='#58a6ff', tags='arm')
         canvas.create_polygon([c for j in pose['joints'] for c in self.project(j)],
-                              fill='#2a2247', outline=ACCENT, width=2)
-        px, py = self.project(pose['platform'])
-        colour = WARN if data['magnet'] else ACCENT
-        canvas.create_oval(px - 6, py - 6, px + 6, py + 6, fill=colour, outline='')
+                              fill='#2a2247', outline=ACCENT, width=2, tags='arm')
+        self.dot(pose['platform'], 6, fill=WARN if data['magnet'] else ACCENT, tags='arm')
         if data['magnet']:
-            canvas.create_oval(px - 11, py - 11, px + 11, py + 11,
-                               outline=WARN, width=1)
+            self.dot(pose['platform'], 11, outline=WARN, tags='arm')
 
     # ---------- the loop the interface runs on ----------
     def tick(self):
+        self.finish_move()
         self.robot_turn()
         data = plc.telemetry()
         self.draw_robot(data)
+        self.draw_board()
 
-        self.joint_label.config(text="\n".join(
-            f"theta{i + 1}  {data['theta'][i]:8.2f} deg" for i in range(3)))
-        self.pose_label.config(text="\n".join(
-            f"{axis}  {data['ee'][i]:9.1f} mm" for i, axis in enumerate("xyz")))
-        self.action_label.config(text=data['fault'] or data['action'],
-                                 fg=BAD if data['fault'] else ACCENT)
-
-        if self.running and self.steps:
-            shown = []
-            for index in range(max(0, self.step_index - 1),
-                               min(len(self.steps), self.step_index + 3)):
-                mark = ">" if index == self.step_index else " "
-                shown.append(f"{mark} {index + 1:2d}. {self.steps[index][2]}")
-            self.steps_label.config(
-                text=f"step {self.step_index + 1} of {len(self.steps)}\n"
-                     + "\n".join(shown))
-        else:
-            self.steps_label.config(text="idle")
-
-        if self.board.is_game_over():
-            turn = f"game over  {self.board.result()}"
-        elif self.running:
-            turn = "robot moving"
-        elif self.board.turn == HUMAN:
-            turn = "your move"
-        else:
-            turn = "robot thinking"
+        self.readout["TELEMETRY"].config(text="\n".join(f"theta{i + 1}  {t:8.2f} deg" for i, t in enumerate(data['theta'])))
+        self.readout["END EFFECTOR"].config(text="\n".join(f"{a}  {v:9.1f} mm" for a, v in zip("xyz", data['ee'])))
+        self.readout["ACTION"].config(text=data['fault'] or data['action'], fg=BAD if data['fault'] else ACCENT)
+        i = max(self.step_index, 0)
+        self.readout["SEQUENCE"].config(text="idle" if not (self.running and self.steps) else
+                                        f"step {i + 1} of {len(self.steps)}\n" + "\n".join(
+                                            f"{'>' if k == i else ' '} {k + 1:2d}. {self.steps[k][2]}"
+                                            for k in range(max(0, i - 1), min(len(self.steps), i + 3))))
+        turn = (f"game over  {self.board.result()}" if self.board.is_game_over() else "robot moving" if self.running
+                else "your move" if self.board.turn == HUMAN else "robot thinking")
         self.status.config(text=f"{turn}    |    " + "   ".join(self.log[-3:]))
-
-        if not self.running and self.board.turn == HUMAN:
-            self.draw_board()
         self.root.after(40, self.tick)
 
 
 if __name__ == "__main__":
     print("Delta chess simulator")
-    print(f"  board:      {B.BOARD:.0f} x {B.BOARD:.0f} mm, "
-          f"{B.SQUARE:.0f} mm squares, centred on the base axis")
+    print(f"  board:      {B.BOARD:.0f} x {B.BOARD:.0f} mm, {B.SQUARE:.0f} mm squares, centred on the base axis")
     print(f"  heights:    transit {B.Z_HIGH:.0f}, piece {B.Z_LOW:.0f} mm")
     print(f"  robot home: {[round(v, 2) for v in K.HOME]} mm")
-    problems = B.audit()
-    print(f"  workspace:  {'all squares reachable' if not problems else problems}")
-
+    print(f"  workspace:  {B.audit() or 'all squares reachable'}")
     window = tk.Tk()
     Simulator(window)
     window.mainloop()
